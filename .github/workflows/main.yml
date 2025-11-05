@@ -3,59 +3,37 @@ name: Build MinFFS
 on:
   push:
     branches:
-      - main
+      - master   # 这里你仓库默认分支是 master 就写 master
   workflow_dispatch:
-
 
 jobs:
   build:
     runs-on: windows-latest
+
     steps:
-      # 安装依赖项
-      - name: Install Dependencies
+      # 1. 拉取当前仓库代码
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      # 2. 安装工具链（先只装最基础的）
+      - name: Install tools
         run: |
           choco install -y mingw
-          choco install -y nsis
           choco install -y 7zip
-          choco install -y wget
 
-      # 下载和安装 ICU
-      - name: Install ICU
+      # TODO: 这里**以后**再补 ICU / wxWidgets / Boost 的安装，
+      #       目前先不折腾，先让 Makefile 能跑起来。
+
+      # 3. 调用 MinGW 平台的 Makefile
+      - name: Build MinFFS (MinGW)
+        working-directory: src+builder/FreeFileSync/Platforms/MinGW
         run: |
-          wget https://github.com/unicode-org/icu/releases/download/release-68-2/icu4c-68_2-src.zip
-          7z x icu4c-68_2-src.zip
-          cd icu/source
-          mingw32-make
+          mingw32-make all
 
-      # 下载和编译 wxWidgets
-      - name: Build wxWidgets
-        run: |
-          wget https://github.com/wxWidgets/wxWidgets/releases/download/v3.1.5/wxWidgets-3.1.5.tar.bz2
-          tar -xvf wxWidgets-3.1.5.tar.bz2
-          cd wxWidgets-3.1.5
-          mkdir build_mingw
-          cd build_mingw
-          ../configure --enable-unicode --with-msw --prefix=/mingw
-          mingw32-make
-          mingw32-make install
-
-      # 获取 MinFFS 代码仓库的源代码
-      - name: Checkout MinFFS
-        uses: actions/checkout@v2
-        with:
-          repository: your_username/MinFFS
-          ref: main
-
-      # 编译 MinFFS
-      - name: Build MinFFS
-        run: |
-          cd MinFFS
-          mingw32-make -f MinFFS.mak
-
-      # 打包可执行文件并上传到 artifact
-      - name: Package and upload
+      # 4. 上传生成的 MinFFS.exe
+      - name: Upload MinFFS.exe
         uses: actions/upload-artifact@v4
         with:
           name: MinFFS
-          path: 'MinFFS.exe'
+          path: src+builder/FreeFileSync/Platforms/MinGW/MinFFS.exe
           if-no-files-found: error
