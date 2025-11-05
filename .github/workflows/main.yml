@@ -30,24 +30,37 @@ jobs:
           # 下载 wxWidgets 源码 ZIP （3.0.2）
           curl -L "https://sourceforge.net/projects/wxwindows/files/3.0.2/wxWidgets-3.0.2.zip/download" -o wxWidgets-3.0.2.zip
 
-          # 用 PowerShell 自带的 Expand-Archive 解压到 C:\wxWidgets-3.0.2
-          if (Test-Path "C:\wxWidgets-3.0.2") {
-            Remove-Item "C:\wxWidgets-3.0.2" -Recurse -Force
+          # 使用临时目录解压，不假设里面的顶层目录叫什么
+          $wxTmp = "C:\wx-src"
+          if (Test-Path $wxTmp) {
+            Remove-Item $wxTmp -Recurse -Force
           }
-          Expand-Archive -Path "wxWidgets-3.0.2.zip" -DestinationPath "C:\" -Force
+          New-Item -ItemType Directory -Path $wxTmp | Out-Null
 
-          # 重命名成 README 里假设的路径 C:\wxWidgets-w64
-          if (Test-Path "C:\wxWidgets-w64") {
-            Remove-Item "C:\wxWidgets-w64" -Recurse -Force
+          Expand-Archive -Path "wxWidgets-3.0.2.zip" -DestinationPath $wxTmp -Force
+
+          # 找到解压出来的第一个子目录，当作 wxWidgets 根目录
+          $wxSub = Get-ChildItem -Path $wxTmp | Where-Object { $_.PSIsContainer } | Select-Object -First 1
+          if (-not $wxSub) {
+            throw "wxWidgets folder not found under $wxTmp"
           }
-          Rename-Item -Path "C:\wxWidgets-3.0.2" -NewName "wxWidgets-w64"
+
+          # 目标路径 C:\wxWidgets-w64，先删再移
+          $wxTarget = "C:\wxWidgets-w64"
+          if (Test-Path $wxTarget) {
+            Remove-Item $wxTarget -Recurse -Force
+          }
+          Move-Item -Path $wxSub.FullName -Destination $wxTarget
+
+          # 清理临时目录
+          Remove-Item $wxTmp -Recurse -Force
 
           # 配好环境变量（让 make 能找到 MinGW，wxWidgets 用到 WXWIN）
-          $env:WXWIN = 'C:\wxWidgets-w64'
+          $env:WXWIN = $wxTarget
           $env:PATH  = "C:\ProgramData\mingw64\mingw64\bin;$env:PATH"
 
           # 进入 wxWidgets 的 MSW 构建目录
-          Set-Location "C:\wxWidgets-w64\build\msw"
+          Set-Location "$wxTarget\build\msw"
 
           # 按 README 用 MinGW 构建：先 release 再 debug，生成 mswu / mswud 两套库
           mingw32-make -f makefile.gcc BUILD=release SHARED=0 CXXFLAGS="-std=gnu++14"
@@ -60,22 +73,26 @@ jobs:
           $ErrorActionPreference = "Stop"
 
           # 准备临时目录
-          if (-Not (Test-Path "C:\build-boost")) {
-            New-Item -ItemType Directory -Path "C:\build-boost" | Out-Null
+          $boostTmpRoot = "C:\build-boost"
+          if (Test-Path $boostTmpRoot) {
+            Remove-Item $boostTmpRoot -Recurse -Force
           }
+          New-Item -ItemType Directory -Path $boostTmpRoot | Out-Null
 
-          Set-Location "C:\build-boost"
+          Set-Location $boostTmpRoot
 
           # 下载 Boost 1.58.0 源码 ZIP
           curl -L "https://sourceforge.net/projects/boost/files/boost/1.58.0/boost_1_58_0.zip/download" -o boost_1_58_0.zip
 
-          # 解压到 C:\build-boost\boost_1_58_0
-          if (Test-Path "C:\build-boost\boost_1_58_0") {
-            Remove-Item "C:\build-boost\boost_1_58_0" -Recurse -Force
-          }
-          Expand-Archive -Path "boost_1_58_0.zip" -DestinationPath "C:\build-boost" -Force
+          # 解压到临时目录，不假设顶层文件夹名
+          Expand-Archive -Path "boost_1_58_0.zip" -DestinationPath $boostTmpRoot -Force
 
-          Set-Location "C:\build-boost\boost_1_58_0"
+          $boostSub = Get-ChildItem -Path $boostTmpRoot | Where-Object { $_.PSIsContainer } | Select-Object -First 1
+          if (-not $boostSub) {
+            throw "Boost folder not found under $boostTmpRoot"
+          }
+
+          Set-Location $boostSub.FullName
 
           # 确保 MinGW 在 PATH 里，让 bootstrap.bat / b2 能找到 g++
           $env:PATH = "C:\ProgramData\mingw64\mingw64\bin;$env:PATH"
